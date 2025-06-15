@@ -5,6 +5,17 @@ import numpy as np
 import robomimic.utils.obs_utils as ObsUtils
 import cv2
 
+# Add dummy diffusion model for latent observation generation
+class DummyDiffusionModel:
+    def __init__(self, latent_dim):
+        self.latent_dim = latent_dim
+
+    def generate_latent(self, image):
+        if image is None:
+            return np.zeros((self.latent_dim,), dtype=np.float32)
+        # Placeholder for actual diffusion model logic
+        return np.random.rand(self.latent_dim).astype(np.float32)
+
 class RobosuiteEnv(Env):
     def __init__(self, env_name="PickPlaceCan", camera_names=["agentview", "robot0_eye_in_hand"], camera_height=32, camera_width=32, frame_stack=5, channels_first=True, observation_type="rgb_wrist"):
         super().__init__()
@@ -49,6 +60,9 @@ class RobosuiteEnv(Env):
         self.frame_stack = frame_stack
         self.camera_names = camera_names
 
+        # Initialize dummy diffusion model
+        self.diffusion_model = DummyDiffusionModel(latent_dim=128)
+
         # Set observation space shape based on channels_first
         if self.observation_type == "rgb_concat":
             camera_width *= 2  # Double the width for concatenation
@@ -71,6 +85,13 @@ class RobosuiteEnv(Env):
                 "rgb_wrist": spaces.Box(0, 255, shape=img_shape, dtype=np.uint8),
                 "rgb_third": spaces.Box(0, 255, shape=img_shape, dtype=np.uint8)
             })
+        # Add latent representation of third-person view to observations
+        elif self.observation_type == "latent_third":
+            latent_dim = 32*32*4 # Example latent dimension
+            self.observation_space = spaces.Dict({
+                "rgb_wrist": spaces.Box(0, 255, shape=img_shape, dtype=np.uint8),
+                "latent_third": spaces.Box(-np.inf, np.inf, shape=(latent_dim,), dtype=np.float32)
+            })
         else:
             raise ValueError(f"Invalid observation_type: {self.observation_type}")
         
@@ -86,6 +107,11 @@ class RobosuiteEnv(Env):
         obs, reward, terminated, info = self.env.step(action)
         truncated = info.get("TimeLimit.truncated", False)
         processed_obs = self._process_observations(obs)
+        # Update step method to read observation at each step and generate latent representation
+        if self.observation_type == "latent_third":
+            wrist_img = obs.get("robot0_eye_in_hand_image", None)
+            latent_repr = self._generate_latent_representation(wrist_img)
+            processed_obs["latent_third"] = latent_repr
         self._last_obs = processed_obs
         return processed_obs, reward, terminated, truncated, info
 
@@ -98,20 +124,29 @@ class RobosuiteEnv(Env):
     def _process_observations(self, obs):
         image_keys = [k for k in obs.keys() if 'image' in k.lower()]
         
+        # Ensure fallback_shape is correctly defined and handle missing image data
         if self.observation_type == "rgb_wrist":
             fallback_shape = self.observation_space['rgb_wrist'].shape
         elif self.observation_type == "rgb_third":
             fallback_shape = self.observation_space['rgb_third'].shape
         elif self.observation_type == "rgb_concat":
-            fallback_shape = self.observation_space['rgb_third'].shape
+            fallback_shape = self.observation_space['rgb_wrist'].shape
+        elif self.observation_type == "latent_third":
+            latent_dim = self.observation_space['latent_third'].shape[0]
+            fallback_shape = (latent_dim,)
         else:
             raise ValueError(f"Invalid observation_type: {self.observation_type}")
-        
+
+        # Add checks to handle missing or invalid image data
+        if fallback_shape is None or len(fallback_shape) < 2:
+            raise ValueError(f"Invalid fallback_shape: {fallback_shape}")
+
         fallback = np.zeros(fallback_shape, dtype=np.uint8)
 
         def convert_img(img):
+            # Update convert_img to handle edge cases
             if img is None or not isinstance(img, np.ndarray):
-                return fallback
+                return np.zeros(fallback_shape, dtype=np.uint8)
             arr = img
             if arr.dtype != np.uint8:
                 arr = np.clip(arr, 0, 1) if arr.max() <= 1.0 else np.clip(arr, 0, 255)
@@ -140,8 +175,17 @@ class RobosuiteEnv(Env):
             if wrist_img is None or third_img is None:
                 raise ValueError("Missing wrist or third-person view for rgb_concat.")
             return {"rgb_wrist": wrist_img, "rgb_third": third_img}
+        # Update _process_observations to include both wrist image and latent vector
+        elif self.observation_type == "latent_third":
+            wrist_img = convert_img(obs.get("robot0_eye_in_hand_image", None))
+            latent_repr = self._generate_latent_representation(wrist_img)
+            return {"rgb_wrist": wrist_img, "latent_third": latent_repr}
         else:
             raise ValueError(f"Invalid observation_type: {self.observation_type}")
+
+    # Update _generate_latent_representation to use the diffusion model
+    def _generate_latent_representation(self, image):
+        return self.diffusion_model.generate_latent(image)
 
     def render(self, mode="rgb_array"):
         if hasattr(self, '_last_obs') and self._last_obs is not None:

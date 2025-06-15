@@ -23,6 +23,9 @@ if _IS_DIAMBRA_ARENA_AVAILABLE and _IS_DIAMBRA_AVAILABLE:
 if _IS_DMC_AVAILABLE:
     pass
 
+# Define a function that triggers recording for every episode
+def always_record(episode_id: int) -> bool:
+    return True
 
 def make_env(
     cfg: Dict[str, Any],
@@ -77,15 +80,15 @@ def make_env(
         # env = hydra.utils.instantiate(cfg.env.wrapper, **instantiate_kwargs, _convert_="all")
         # import pdb; pdb.set_trace()
         if cfg.env.type == "robosuite":
-            env = RobosuiteEnv(
-                env_name=cfg.env.env_name,
-                camera_names=cfg.env.camera_names,
-                camera_height=cfg.env.screen_size,
-                camera_width=cfg.env.screen_size,
-                frame_stack=cfg.env.frame_stack,
-                observation_type=cfg.env.observation_type
-                render_mode=cfg.env.render_mode,
-            )
+                            env = RobosuiteEnv(
+                    env_name=cfg.env.env_name,
+                    camera_names=cfg.env.camera_names,
+                    camera_height=cfg.env.screen_size,
+                    camera_width=cfg.env.screen_size,
+                    frame_stack=cfg.env.frame_stack,
+                    observation_type=cfg.env.observation_type
+                    # render_mode=cfg.env.render_mode
+                )
         else:
             instantiate_kwargs = {}
             if "seed" in cfg.env.wrapper:
@@ -246,7 +249,9 @@ def make_env(
             if cfg.env.grayscale:
                 env = GrayscaleRenderWrapper(env)
             env = gym.experimental.wrappers.RecordVideoV0(
-                env, os.path.join(run_name, prefix + "_videos" if prefix else "videos"), disable_logger=True
+                env, os.path.join(run_name, prefix + "_videos" if prefix else "videos"),
+                # episode_trigger=always_record,  # Record every episode
+                disable_logger=True
             )
             env.metadata["render_fps"] = env.frames_per_sec
         return env

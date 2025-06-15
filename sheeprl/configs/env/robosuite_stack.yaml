@@ -1,6 +1,6 @@
-id: robosuite_Can
+id: robosuite_BlockStacking
 type: robosuite
-env_name: PickPlaceCan
+env_name: Stack
 wrapper:
   _target_: sheeprl.envs.robosuite_env.RobosuiteEnv
 robots: Panda
@@ -12,7 +12,7 @@ frame_stack: 5
 action_repeat: 1  # Minimal repetition; increase to 2-4 for faster control if needed
 max_episode_steps: 200  # Typical for robosuite
 capture_video: True
-video_frequency: 2
+video_frequency: 1
 grayscale: False
 mask_velocities: False
 actions_as_observation:
@@ -23,4 +23,3 @@ num_envs: 4
 fabric:
   accelerator: gpu
   precision: bf16-mixed
-
